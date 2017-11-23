@@ -31,6 +31,9 @@ def mle(filename): # Max Likelihood Estimation of HMM
             tagfreq[tag] += 1
             last = tag            
     
+    dictionary[startsym].add(startsym)
+    dictionary[stopsym].add(stopsym)
+
     model = defaultdict(float)
     num_tags = len(tagfreq)
     for tag, freq in tagfreq.items(): 
@@ -60,8 +63,10 @@ def templateToString(template, tags, words, idx):#use this to generate string fo
             strList.append("OOR")#out of range
             continue
         strList.append( str(elem) + (tags[curr] if elem[0] == "t" else words[curr]) )
-
-    return ''.join(strList)
+    
+    x = ''.join(strList)
+    #print(x)
+    return x#''.join(strList)
 
 
 def update(model, tags, mytag, words, template):
@@ -74,6 +79,7 @@ def update(model, tags, mytag, words, template):
                 if val < 0 or val >= len(words):
                     continue
                 if tags[val] != mytag[val]:
+                    #print("UPDATING")
                     bad = templateToString(guide, mytag, words, i)
                     good = templateToString(guide, tags, words, i)
                     model[bad]  -= 1
@@ -103,9 +109,13 @@ def perceptron(train, testF, template, AVG = True, epoch=10):
     avgModel = defaultdict(float)
     accSpread = [ [] for _ in range(4) ]
     c = 0
+
+    best = (100,0)
+
     for ep in range(epoch):
         updates = 0
         for words, tags in train_dat:
+            #print("DECODING")
             mytag = decode(words, dictionary, model, template)
             if mytag != tags:
                 updates += 1
@@ -134,17 +144,29 @@ def perceptron(train, testF, template, AVG = True, epoch=10):
         if AVG:
             avgTrain    = test(train, dictionary, avgModel, template)
             avgDev      = test(testF, dictionary, avgModel, template)
-            averageString = " Average Train: {:0.2%} Average Dev: {:0.2%}".format(avgTrain, avgDev)
+            averageString = " Average Train: {:0.3%} Average Dev: {:0.3%}".format(avgTrain, avgDev)
             accSpread[2].append(avgTrain)
             accSpread[3].append(avgDev)
 
+            if avgDev < best[0]:
+                best = (avgDev, avgModel)
+        
+        if devErr < best[0]:
+            best = (devErr, model)
+        
         weightSize = sum( x!=0 for x in model.values() )
 
         #print(trainErr, devErr)
-        print("Epoch: {} Updates: {} |W| = {} TrainErr: {:0.2%} DevErr: {:0.2%}"\
+        print("Epoch: {} Updates: {} |W| = {} TrainErr: {:0.3%} DevErr: {:0.3%}"\
                 .format(ep, updates, weightSize, trainErr, devErr), end='' ) 
 
         print( ((AVG and averageString)  or ''))
+
+    best = (round(best[0], 3), best[1])
+    predict("hw3-data/test.txt.lower.unk.unlabeled", str(best[0])+"test.lower.unk.best",\
+            dictionary, best[1], template)
+    predict("hw3-data/dev.txt.lower.unk", str(best[0])+"dev.lower.unk.best", \
+            dictionary, best[1], template)
 
     return model, avgModel, accSpread
 
@@ -198,10 +220,10 @@ def test(filename, dictionary, model, template):
         
     return errors/tot
 
-def predict(filename, outfile,  dictionary, model):
-    with open(outfile) as out:
-        for words in [ x.split() for x in open(filename) ]:
-            mytags = decode(words, dictionary, model)
+def predict(filename, outfile,  dictionary, model, template):
+    with open(outfile, 'w') as out:
+        for words in [ [i.split('/')[0]  for i in x.split()]  for x in open(filename) ]:
+            mytags = decode(words, dictionary, model, template)
             line = ''.join( word + '/' + tag for word, tag in zip(words, mytags) )
             print(line, file=out)
 
@@ -232,7 +254,7 @@ if __name__ == "__main__":
     
     dictionary, model = mle(trainfile)
 
-    template = ["t0_t-1", "t0_w0"]
+    template = ["t0_t-1", "t0_w0", "t-1_t0_t-2", "t0_w-1", "t0_t-1_w-1"]
 
     currTime = time.time()
     model, avgModel, acc = perceptron(trainfile, devfile, template, AVG = True)
